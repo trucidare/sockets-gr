@@ -1,0 +1,96 @@
+/* grainc-flags --no-gc */
+export *
+
+import WasmI32 from "runtime/unsafe/wasmi32"
+
+/**
+ * sock_accept syscall to the runtime
+ *
+ * @param fd: The file descriptor from the runtime minus 3 
+ * @param flags: The fd flags 
+ * @param newFd: The created fd
+ * @returns Errno 
+ * 
+ * @since v0.1.0
+ * 
+ */
+import foreign wasm sock_accept: (
+    WasmI32, 
+    WasmI32, 
+    WasmI32  
+) -> WasmI32 from "wasi_snapshot_preview1";
+
+/**
+ * sock_recv syscall to the runtime
+ *
+ * @param fd: The file descriptor from the runtime minus 3 
+ * @param data_ptr: Pointer to the structure for the   
+ * @param data_len: Length of the structure content
+ * @param flags: The ri flags
+ * @param datalen: Output len of the written bytes
+ * @param outflags: Output ro flags
+ * @returns Errno 
+ * 
+ * @since v0.1.0
+ * 
+ */
+import foreign wasm sock_recv: (
+    WasmI32, 
+    WasmI32, 
+    WasmI32, 
+    WasmI32, 
+    WasmI32, 
+    WasmI32  
+) -> WasmI32 from "wasi_snapshot_preview1";
+
+/**
+ * sock_send syscall to the runtime
+ *
+ * @param fd: The file descriptor from the runtime minus 3 
+ * @param data_ptr: Pointer to the structure for the content  
+ * @param data_len: Length of the structure content
+ * @param flags: The si flags
+ * @param datalen: Output len of the read bytes
+ * @returns Errno 
+ * 
+ * @since v0.1.0
+ * 
+ */
+import foreign wasm sock_send: (
+  WasmI32, 
+  WasmI32, 
+  WasmI32, 
+  WasmI32, 
+  WasmI32  
+) -> WasmI32 from "wasi_snapshot_preview1";
+
+/**
+ * sock_send syscall to the runtime
+ *
+ * @param fd: The file descriptor from the runtime minus 3 
+ * @param flags: The sd flags  
+ * @returns Errno 
+ * 
+ * @since v0.1.0
+ * 
+ */
+import foreign wasm sock_shutdown: (
+  WasmI32, /*fd*/
+  WasmI32  /*sd flags*/
+) -> WasmI32 from "wasi_snapshot_preview1";
+
+
+// RiFlags
+let _RIPEEK = 0n
+let _RIWAITALL = 1n
+
+// RoFlags
+let _ROFDS_TRUNCATED = 0n
+let _RODATA_TRUNCATED = 1n
+
+// SdFlags
+let _SDRD = 0n
+let _SDWR = 1n
+
+// SiFlags
+let _SIDEFAULT = 0n

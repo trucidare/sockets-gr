@@ -1,0 +1,239 @@
+/**
+ * @module title: server
+ */
+
+import List from "list"
+import Client from "./client"
+import Socket from "./wasi/socket"
+
+/**
+ * The server record 
+ *
+ * @since v0.1.0
+ */
+record Server { 
+    start: () -> Void,
+    stop: () -> Void,
+    accecptClient: () -> Void,
+    send: (Client.Client, String) -> Bool,
+    onConnected: ((Client.Client) -> Void) -> Void,
+    onDisconnected: ((Client.Client) -> Void) -> Void,
+    onReceive: ((Client.Client, String) -> Void) -> Void,
+}
+
+/**
+ * Create new record instance
+ *
+ * @param fd: The file descriptor from the runtime minus 3 
+ * @param maxClients: Max client count 
+ * @returns Server instance
+ *
+ * @example new(0, 5)
+ * 
+ * @since v0.1.0
+ * 
+ */
+let new = (fd: Number, maxClients: Number) => {
+    let mut listening = false
+    let maxClientCount = maxClients
+    let fdNumber = fd + 3
+
+    let mut cbConnected = (cb: Client.Client) => {void}
+    let mut cbDisconnect = (cb: Client.Client) => {void}
+    let mut cbReceive = (cb: Client.Client, message: String) => {void}
+
+    let mut clients = List.init(0,(n) => Client.new(Socket.FileDescriptor(n)))
+
+    let rec readString = (in) => {
+        let res = Socket.socketReceive(in, 1024)
+        match (res) {
+            Ok((d, len)) => {
+                let mut str = d
+                if (len > 0) {
+                    let bStr = readString(in)
+                    let res = match (bStr) {
+                        Ok(s) => {
+                            str = str ++ s
+                            Ok(str)
+                        },
+                        Err(e) => {
+                            if (e != 6)
+                                Ok(str)
+                            else 
+                                Err(e)
+                        } 
+                    }
+                    //str = str ++ readString(in)
+                } 
+
+                Ok(str)
+            },
+            Err(err) => {
+                Err(Socket.errNoFromSystemError(err))
+            },
+        }
+    }
+
+    /**
+     * Start the server
+     *
+     * @example _start()
+     * 
+     * @since v0.1.0
+     * 
+     */
+    let _start = () => {
+        print("Server::Start - Starting...")
+        listening = true
+        void
+    }
+
+    /**
+     * Stop the server
+     *
+     * @example _stop()
+     * 
+     * @since v0.1.0
+     */
+    let _stop = () => {
+        print("Server::Stop - Shutdown")
+        listening = false
+        void
+    }
+
+    /**
+     * Set the connected callback
+     *
+    * @param cb: The callback function
+     * @example _setConnectedCallback((client: Client.Client) => {void})
+     * 
+     * @since v0.1.0
+     */
+    let _setConnectedCallback = (cb: ((Client.Client) -> Void)) => {
+        cbConnected = cb
+    }
+
+    /**
+     * Set the disconnect callback
+     *
+    * @param cb: The callback function
+     * @example _setDisconnectedCallback((client: Client.Client) => {void})
+     * 
+     * @since v0.1.0
+     */
+    let _setDisconnectedCallback = (cb: ((Client.Client) -> Void)) => {
+        cbDisconnect = cb
+    }
+
+    /**
+     * Set the receive callback
+     *
+     * @param cb: The callback function
+     * @example _setReceiveCallback((client: Client.Client, message: String) => {void})
+     * 
+     * @since v0.1.0
+     */
+    let _setReceiveCallback = (cb: ((Client.Client, String) -> Void)) => {
+        cbReceive = cb
+    }
+
+    /**
+     * Internal disconnect the client 
+     * 
+     * Remove the client from the clients list
+     * 
+     * @param client: The client instancs
+     * @example _internalDisconnect(Client.Client(Server.FileDescriptor(1)))
+     * 
+     * @since v0.1.0
+     */
+    let _internalDisconnect = (client: Client.Client) => {
+        clients = List.filter((m) => m != client, clients)
+        cbDisconnect(client)
+    }
+
+    /**
+     * Send a message to a client
+     * @param client: The client instancs
+     * @param message: The Message to send 
+     * @example _send(Client.Client(Server.FileDescriptor(1)), "Hallo world")
+     * 
+     * @since v0.1.0
+     */
+    let _send = (client: Client.Client, message: String) => {
+        if (List.contains(client, clients)) {
+            let res = Socket.socketSend(client.fileDescriptor, message)
+            true
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Handle the clients
+     * 
+     * @example _handleClients()
+     * 
+     * @since v0.1.0
+     */
+    let _handleClients = () => {
+        List.forEach((n: Client.Client) => {
+            let res = readString(n.fileDescriptor)
+            match (res) {
+                Ok(a) => {
+                if (a != "") {
+                        cbReceive(n, a)
+                    }
+                },
+                Err(e) => {
+                    // FIXME: SystemErrors :(
+                    //_internalDisconnect(n)
+                    void
+                }
+            }  
+            
+            void
+        }, clients)
+        void
+    }
+
+    /**
+     * Accept a new client
+     * 
+     * @example _acceptClient()
+     * 
+     * @since v0.1.0
+     */
+    let _acceptClient = () => {
+        if (listening) {
+            let fd = Socket.socketAccept(Socket.FileDescriptor(fdNumber));
+            match (fd) {
+                Ok(fd) => {
+                    let client = Client.new(fd)
+                    clients = List.insert(client, List.length(clients) , clients)
+                    cbConnected(client)
+                    void
+                },
+                Err(err) => void
+            }
+
+            _handleClients()
+        }
+    }
+
+    // return
+    {
+        start: _start,
+        stop: _stop,
+        accecptClient: _acceptClient,
+        send: _send,
+        onConnected: _setConnectedCallback,
+        onDisconnected: _setDisconnectedCallback,
+        onReceive: _setReceiveCallback,
+    }
+}
+
+export *
+
+
+

@@ -1,0 +1,35 @@
+/**
+ * @module title: client
+ */
+import Socket from "./wasi/socket"
+
+/**
+ * The client record 
+ *
+ * @since v0.1.0
+ */
+record Client {
+    fileDescriptor: Socket.FileDescriptor
+}
+
+/**
+ * Create new record instance
+ *
+ * @param fd: A socket filedescriptr
+ * @returns Server instance
+ *
+ * @example new(Socket.FileDescriptor(6))
+ * 
+ * @since v0.1.0
+ * 
+ */
+let new = (fileDescriptor: Socket.FileDescriptor) => {
+    let fd = fileDescriptor
+
+    // return 
+    {
+        fileDescriptor: fd
+    }
+}
+
+export *
