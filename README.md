@@ -68,7 +68,7 @@ Run the following commands to start the server
 
 ```bash
 grain compile simpleServer.gr
-wasmtime --tcplisten localhost:5000 --env a=b --dir=. simpleServer.gr.wasm 
+wasmtime --tcplisten localhost:5000 --env a=b simpleServer.gr.wasm 
 ```
 
 Open a browser and point it to http://localhost:5000/
