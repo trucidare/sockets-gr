@@ -1,13 +1,14 @@
 import Net from "../server"
+import Bytes from "bytes"
 
 let content = "HTTP/1.1 200 OK
 Date: Sun, 18 Oct 2012 10:36:20 GMT
 Server: Grain Server
-Content-Length: 77
+Content-Length: 79
 Connection: Closed
 Content-Type: text/html; charset=iso-8859-1
 
-<html><head><title>Index</title></head><body><h3>It works!</h3></body></html>"
+<html><head><title>Index</title></head><body><h3>It works!!!</h3></body></html>"
 
 /**
  * Construct a server (internally the fd number (0) will be added by 3) 
