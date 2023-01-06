@@ -9,7 +9,9 @@ import Socket from "./wasi/socket"
  * @since v0.1.0
  */
 record Client {
-    fileDescriptor: Socket.FileDescriptor
+    fileDescriptor: Socket.FileDescriptor,
+    keepAlive: Bool,
+    getFileDescriptorNumber: () -> Number
 }
 
 /**
@@ -28,7 +30,11 @@ let new = (fileDescriptor: Socket.FileDescriptor) => {
 
     // return 
     {
-        fileDescriptor: fd
+        fileDescriptor: fd,
+        keepAlive: false,
+        getFileDescriptorNumber: () => {
+            match (fd) { Socket.FileDescriptor(n) => n }
+        }
     }
 }
 

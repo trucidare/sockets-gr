@@ -237,7 +237,6 @@ let new = (fd: Number, maxClients: Number) => {
 
             _handleClients()
         }
-        Socket.sleep(1)
     }
 
     let _disconnectClient = (client: Client.Client) => {
