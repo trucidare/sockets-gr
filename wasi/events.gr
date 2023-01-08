@@ -1,0 +1,339 @@
+/**
+ * @module Event: Subscriptions to events.
+ *
+ * @example import Event from "sys/event"
+ */
+
+import WasmI32, {
+  add as (+),
+  mul as (*),
+  or as (|),
+  ltU as (<),
+  eq as (==),
+  ne as (!=),
+} from "runtime/unsafe/wasmi32"
+import WasmI64 from "runtime/unsafe/wasmi64"
+import Memory from "runtime/unsafe/memory"
+import Wasi from "runtime/wasi"
+import SocketWasi from "./wasi"
+import Errors from "runtime/unsafe/errors"
+import {
+  newInt32,
+  newInt64,
+  tagSimpleNumber,
+  untagSimpleNumber,
+} from "runtime/dataStructures"
+import Int64 from "int64"
+
+import List from "list"
+import File from "sys/file"
+import Time from "sys/time"
+
+/**
+ * @section Types: Types included in the Event module.
+ */
+
+/**
+ * User-provided value that may be attached to objects that is retained when
+ * extracted from the implementation.
+ */
+export type Userdata = Int64
+
+/**
+ * Type of a subscription to an event or its occurrence.
+ */
+export enum EventType {
+  // The time value of clock `SubscriptionClock.id` has
+  // reached timestamp `SubscriptionClock.timeout`.
+  Clock,
+  // File descriptor `SubscriptionFdReadWrite.fileDescriptor` has data
+  // available for reading. This event always triggers for regular files.
+  FdRead,
+  // File descriptor `SubscriptionFdReadWrite.fileDescriptor` has capacity
+  // available for writing. This event always triggers for regular files.
+  FdWrite,
+}
+
+/**
+ * The state of the file descriptor subscribed to with
+ * `EventType.FdRead` or `EventType.FdWrite`.
+ */
+export enum EventRWFlags {
+  // The peer of this socket has closed or disconnected.
+  FdReadWriteHangup,
+}
+
+/**
+ * The contents of an `event` when type is `EventType.FdRead` or
+ * `EventType.FdWrite`.
+ */
+export record EventFdReadWrite {
+  // The number of bytes available for reading or writing.
+  nbytes: Int64,
+  // The state of the file descriptor.
+  flags: List<EventRWFlags>,
+}
+
+/**
+ * An event that occurred.
+ */
+export record Event {
+  // User-provided value that got attached to `subscription::userdata`.
+  userdata: Userdata,
+  // If non-zero, an error that occurred while processing the subscription request.
+  error: Number,
+  // The type of event that occured
+  eventType: EventType,
+  // The contents of the event, if it is an `EventType.FdRead` or
+  // `EventType.FdWrite`. `EventType.Clock` events ignore this field.
+  fdReadWrite: Option<EventFdReadWrite>,
+}
+
+/**
+ * Flags determining how to interpret the timestamp provided in
+ * `SubscriptionClock.timeout`
+ */
+export enum SubClockFlags {
+  // If set, treat the timestamp provided in
+  // `SubscriptionClock.timeout` as an absolute timestamp of clock
+  // `SubscriptionClock.id`. If clear, treat the timestamp
+  // provided in `SubscriptionClock.timeout` relative to the
+  // current time value of clock `SubscriptionClock.id`.
+  SubscriptionClockAbstime,
+}
+
+
+/**
+  * @section Types: Functions and constants included in the Time module.
+  */
+
+ export enum Clock {
+   // The clock measuring real time. Time value zero corresponds with
+   // 1970-01-01T00:00:00Z.
+   Realtime,
+   // The store-wide monotonic clock, which is defined as a clock measuring
+   // real time, whose value cannot be adjusted and which cannot have negative
+   // clock jumps. The epoch of this clock is undefined. The absolute time
+   // value of this clock therefore has no meaning.
+   Monotonic,
+   // The CPU-time clock associated with the current process.
+   ProcessCpuTime,
+   // The CPU-time clock associated with the current thread.
+   ThreadCpuTime,
+ }
+
+/**
+ * The contents of a `Subscription` when type is `EventType.Clock`.
+ */
+export record SubscriptionClock {
+  // The clock against which to compare the timestamp.
+  clock: Clock,
+  // The absolute or relative timestamp.
+  timeout: Int64,
+  // The amount of time that the implementation may wait additionally
+  // to coalesce with other events.
+  precision: Int64,
+  // Flags specifying whether the timeout is absolute or relative
+  flags: List<SubClockFlags>,
+}
+
+/**
+ * The contents of a `subscription` when type is type is
+ * `EventType.FdRead` or `EventType.FdWrite`.
+ */
+export record SubscriptionFdReadwrite {
+  // The file descriptor on which to wait for it to become ready for reading or writing.
+  fileDescriptor: File.FileDescriptor,
+}
+
+export enum SubscriptionContents {
+  SubscriptionClock(SubscriptionClock),
+  SubscriptionFdRead(SubscriptionFdReadwrite),
+  SubscriptionFdWrite(SubscriptionFdReadwrite),
+}
+
+/**
+ * Subscription to an event.
+ */
+export record Subscription {
+  // User-provided value that is attached to the subscription in the
+  // implementation and returned through `Event.userdata`.
+  userdata: Userdata,
+  // The type of the event to which to subscribe, and its contents
+  contents: SubscriptionContents,
+}
+
+
+
+/**
+ * @section Values: Functions and constants included in the Event module.
+ */
+
+@unsafe
+let eventRWFlagsToList = flags => {
+  if (flags == 0n) {
+    []
+  } else if (flags == 1n) {
+    [FdReadWriteHangup]
+  } else {
+    fail "Unknown event flag"
+  }
+}
+
+@unsafe
+let rec combineSubClockFlagsHelp = (acc, subclockFlags) => {
+  match (subclockFlags) {
+    [hd, ...tl] => {
+      let flag = match (hd) {
+        SubscriptionClockAbstime => SocketWasi._SUBCLOCK_FLAG_CLOCK_ABSTIME,
+      }
+      combineSubClockFlagsHelp(acc | flag, tl)
+    },
+    [] => acc,
+  }
+}
+@unsafe
+let combineSubClockFlags = subclockFlags => {
+  combineSubClockFlagsHelp(0n, subclockFlags)
+}
+
+/**
+ * Concurrently poll for the occurrence of a set of events.
+ * @param subscriptions: The events to which to subscribe.
+ * @returns `Ok(events)` of the events which occured if successful or `Err(Exception)` otherwise
+ */
+@unsafe
+export let pollOneoff = subscriptions => {
+  // subscription layout
+  /*
+userdata 8
+eventtype 1
+padding 7
+sub(clock) 26 or sub(fd) 4
+*/
+
+  let nSubscriptions = untagSimpleNumber(List.length(subscriptions))
+  let subsBuf = Memory.malloc(nSubscriptions * 48n)
+
+  let mut subscriptions = subscriptions
+  for (let mut i = 0n; ; i += 48n) {
+    match (subscriptions) {
+      [] => break,
+      [{ contents, userdata }, ...tl] => {
+        subscriptions = tl
+
+        let subBuf = subsBuf + i
+
+        let userdata = WasmI64.load(WasmI32.fromGrain(userdata), 8n)
+        WasmI64.store(subBuf, userdata, 0n)
+
+        match (contents) {
+          SubscriptionClock({ clock, timeout, precision, flags }) => {
+            WasmI32.store8(subBuf, 0n, 8n)
+
+            let clockid = match (clock) {
+              Realtime => Wasi._CLOCK_REALTIME,
+              Monotonic => Wasi._CLOCK_MONOTONIC,
+              ProcessCpuTime => Wasi._CLOCK_PROCESS_CPUTIME,
+              ThreadCpuTime => Wasi._CLOCK_THREAD_CPUTIME,
+            }
+            WasmI32.store(subBuf, clockid, 16n)
+
+            let timeout = WasmI64.load(WasmI32.fromGrain(timeout), 8n)
+            WasmI64.store(subBuf, timeout, 24n)
+
+            let precision = WasmI64.load(WasmI32.fromGrain(precision), 8n)
+            WasmI64.store(subBuf, precision, 32n)
+
+            let flags = combineSubClockFlags(flags)
+            WasmI32.store16(subBuf, flags, 40n)
+          },
+          SubscriptionFdRead({ fileDescriptor }) => {
+            WasmI32.store8(subBuf, 1n, 8n)
+
+            let fd = match (fileDescriptor) {
+              File.FileDescriptor(n) => untagSimpleNumber(n),
+            }
+            WasmI32.store(subBuf, fd, 16n)
+
+            WasmI32.store(subsBuf, subBuf, i)
+          },
+          SubscriptionFdWrite({ fileDescriptor }) => {
+            WasmI32.store8(subBuf, 2n, 8n)
+
+            let fd = match (fileDescriptor) {
+              File.FileDescriptor(n) => untagSimpleNumber(n),
+            }
+            WasmI32.store(subBuf, fd, 16n)
+
+            WasmI32.store(subsBuf, subBuf, i)
+          },
+        }
+      },
+    }
+  }
+
+  let eventsBuf = Memory.malloc(nSubscriptions * 32n)
+
+  let nevents = Memory.malloc(4n)
+  let err = SocketWasi.poll_oneoff(subsBuf, eventsBuf, nSubscriptions, nevents)
+
+  Memory.free(subsBuf)
+
+  if (err != Wasi._ESUCCESS) {
+    for (let mut i = 0n; i < nSubscriptions; i += 1n) {
+      Memory.free(WasmI32.load(eventsBuf, i * 4n))
+    }
+    Memory.free(eventsBuf)
+    Memory.free(nevents)
+    Err(Wasi.SystemError(tagSimpleNumber(err)))
+  } else {
+    let eventCount = WasmI32.load(nevents, 0n)
+    Memory.free(nevents)
+
+    let mut results = []
+
+    for (let mut i = 0n; i < eventCount; i += 1n) {
+      let event = eventsBuf + i * 32n
+      let userdata = WasmI32.toGrain(newInt64(WasmI64.load(event, 0n))): Int64
+      let error = tagSimpleNumber(WasmI32.load16U(event, 8n))
+      match (WasmI32.load8U(event, 10n)) {
+        0n => {
+          let event = { userdata, error, eventType: Clock, fdReadWrite: None }
+          results = [event, ...results]
+        },
+        1n => {
+          let nbytes = WasmI32.toGrain(
+            newInt64(WasmI64.load(event, 16n))
+          ): Int64
+          let flags = eventRWFlagsToList(WasmI32.load16U(event, 24n))
+          let event = {
+            userdata,
+            error,
+            eventType: FdRead,
+            fdReadWrite: Some({ nbytes, flags }),
+          }
+          results = [event, ...results]
+        },
+        2n => {
+          let nbytes = WasmI32.toGrain(
+            newInt64(WasmI64.load(event, 16n))
+          ): Int64
+          let flags = eventRWFlagsToList(WasmI32.load16U(event, 24n))
+          let event = {
+            userdata,
+            error,
+            eventType: FdWrite,
+            fdReadWrite: Some({ nbytes, flags }),
+          }
+          results = [event, ...results]
+        },
+        _ => fail "Unknown event type",
+      }
+    }
+
+    Memory.free(eventsBuf)
+
+    Ok(List.reverse(results))
+  }
+}

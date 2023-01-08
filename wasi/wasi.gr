@@ -79,6 +79,14 @@ import foreign wasm sock_shutdown: (
   WasmI32  /*sd flags*/
 ) -> WasmI32 from "wasi_snapshot_preview1";
 
+// events
+ import foreign wasm poll_oneoff: (
+   WasmI32,
+   WasmI32,
+   WasmI32,
+   WasmI32,
+ ) -> WasmI32 from "wasi_snapshot_preview1"
+
 
 // RiFlags
 let _RIPEEK = 0n
@@ -94,3 +102,5 @@ let _SDWR = 1n
 
 // SiFlags
 let _SIDEFAULT = 0n
+
+let _SUBCLOCK_FLAG_CLOCK_ABSTIME = 1n
