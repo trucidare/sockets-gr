@@ -5,6 +5,26 @@
 import List from "list"
 import Client from "./client"
 import Socket from "./wasi/socket"
+import Events from "./wasi/events"
+import Int64 from "int64"
+import Result from "result"
+
+export let sleep = (ms: Number) => {
+  let subscription: Events.Subscription = {
+    userdata: 0L,
+    contents: Events.SubscriptionClock(
+      {
+        clock: Events.Realtime,
+        timeout: Int64.fromNumber(ms * 1_000_000),
+        precision: 1000L,
+        flags: [],
+      }
+    ),
+  }
+
+  ignore(Result.expect("Sleeping failed", Events.pollOneoff([subscription])))
+}
+
 
 /**
  * The server record 
