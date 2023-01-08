@@ -54,5 +54,6 @@ server.start()
 
 while (true) {
     server.accecptClient();
+    Net.sleep(3)
 }
 
